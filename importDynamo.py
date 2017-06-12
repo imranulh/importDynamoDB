@@ -1,7 +1,7 @@
 import sys, boto3, json, csv, time
 from sys import argv
 from pydoc import locate
-from multiprocessing import pool
+from multiprocessing import Pool
 
 def splitFiles(fileName, threshold = 100000):
 	with open(fileName) as largefile:
@@ -30,29 +30,25 @@ def splitFiles(fileName, threshold = 100000):
 				fopen = 0
 		splitfile.close()
 	return splitnames
-					
-					
+
 
 def importToDynamoDB(tableName, csvFile, fields, config):
 	
-	# dynamo_resource = boto3.resource('dynamodb', region_name = config['aws_region'], aws_access_key_id = config['aws_access_key'], aws_secret_access_key = config['aws_secret_key'])
-	# table = dynamo_resource.Table("LookupValues")
+	dynamo_resource = boto3.resource('dynamodb', region_name = config['aws_region'], aws_access_key_id = config['aws_access_key'], aws_secret_access_key = config['aws_secret_key'])
+	table = dynamo_resource.Table("LookupValues")
 	with open(csvFile) as csv_file:
 		csv_reader = csv.DictReader(csv_file, delimiter="\t")
-		print("Start Writing data into table.", csvFile)
-		# with table.batch_writer(overwrite_by_pkeys=[fields["Keys"]["partition"], fields["Keys"]["sort"]]) as batch:
-		# 	for row in csv_reader:
-		# 		for key, val in row.items():
-		# 			type = locate(fields[key]);
-		# 			row[key] = str('$E$') if (not val or val=='') else type(val)
-		# 		batch.put_item(
-		# 			Item=row
-		# 		)
-		# print("End Writing data into table.")
+		print("Start Writing data into table.")
+		with table.batch_writer(overwrite_by_pkeys=[fields["Keys"]["partition"], fields["Keys"]["sort"]]) as batch:
+			for row in csv_reader:
+				for key, val in row.items():
+					type = locate(fields[key]);
+					row[key] = str('$E$') if (not val or val=='') else type(val)
+				batch.put_item(
+					Item=row
+				)
+		print("End Writing data into table.")
 
-def truncateTable(tableName, fields):
-	#Todo
-	print('This is in progress')
 	
 def setCapacity(tableName, config):
 	client = boto3.client('dynamodb', region_name = config['aws_region'], aws_access_key_id = config['aws_access_key'], aws_secret_access_key = config['aws_secret_key'])
@@ -118,17 +114,17 @@ def main():
 	if '-ak' in myargs:
 		config['aws_access_key'] = myargs['-ak']
 	else:
-		config['aws_access_key'] = 'AWS_ACCESS_KEY'
+		config['aws_access_key'] = 'DEFAULT_ACCESS_KEY'
 		
 	if '-sk' in myargs:
 		config['aws_secret_key'] = myargs['-sk']
 	else:
-		config['aws_secret_key'] = 'AWS_SECRET_KEY'
+		config['aws_secret_key'] = 'DEFAULT_SECRET_KEY'
 		
 	if '-region' in myargs:
 		config['aws_region'] = myargs['-region']
 	else:
-		config['aws_region'] = 'us-east-1'
+		config['aws_region'] = 'DEFAULT_REGION'
 
 	if '-c' in myargs:
 		config['cap'] = myargs['-c'].split(',')
@@ -136,7 +132,7 @@ def main():
 		config['cap'] = [read_cap, write_cap]
 	
 	with open('tablenames.json') as tablenameFile:
-		tablenames = json.load(tablenameFile)
+		tablenames = json.load(tablenameFile);
 	
 	#Load table names
 	try:
@@ -146,24 +142,25 @@ def main():
 		pass
 	
 	if err != '':
-		print(err)
-		sys.exit(0)
+		print(err);
+		sys.exit(0);
 
 	if '-c' in myargs:
-		setCapacity(tableName, config)
+		setCapacity(tableName, config);
 	filenames = splitFiles(csvFile)
+	print('Split Ends at: ' + time.ctime())
+	args = []
+	for csvFile in filenames:
+		args.append((tableName, csvFile, fields, config))
 
-	print(filenames)
-	filecount = len(filenames)
-	pool = Pool(filecount)
-	pool.map()
-	#importToDynamoDB(tableName, csvFile, fields, config)
+	p = Pool(5)
+	p.starmap(importToDynamoDB, args)
+	importToDynamoDB(tableName, csvFile, fields, config)
 
 
 if __name__ == "__main__":
 	start = time.time()
 	print('Started at: ' + time.ctime(start))
-	time.sleep(3)
 	main()
 	end = time.time()
 	print('Ends at: ' + time.ctime())
